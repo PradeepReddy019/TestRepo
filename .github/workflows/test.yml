@@ -26,6 +26,8 @@ jobs:
         if [[ $GITHUB_REF_NAME == 'develop' ]]; then
           echo "ENV=dev" >> "$GITHUB_ENV"
         elif [[ $GITHUB_REF_NAME == 'release' ]]; then
+          echo "ENV=qa" >> "$GITHUB_ENV"
+        elif [[ $GITHUB_REF_NAME == 'main' ]]; then
           echo "ENV=prod" >> "$GITHUB_ENV"
         else
           echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
