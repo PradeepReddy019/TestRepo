@@ -58,7 +58,7 @@ jobs:
     - name: Configure AWS Credentials using OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/Github_Action_Role
+        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHub_Action_Role
         aws-region: us-east-1
 
     # # Step 6: Download kubectl
