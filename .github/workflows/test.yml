@@ -1,0 +1,148 @@
+name: Build Notification Service and Deploys to EKS
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - develop
+  #     - release
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+    # Step 1: Check out the repository code
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Step 2: Set environment based on branch
+    - name: Set environment variable
+      run: |
+        if [[ $GITHUB_REF_NAME == 'develop' ]]; then
+          echo "ENV=dev" >> "$GITHUB_ENV"
+        elif [[ $GITHUB_REF_NAME == 'release' ]]; then
+          echo "ENV=prod" >> "$GITHUB_ENV"
+        else
+          echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
+        fi
+
+    # Step 3: Set AWS account ID based on environment
+    - name: Set AWS account ID based on environment
+      run: |
+        if [[ ${{ env.ENV }} == 'dev' ]]; then
+          echo "AWS_ACCOUNT_ID=${{ secrets.DEV_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+        elif [[ ${{ env.ENV }} == 'release' ]]; then
+          echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+        elif [[ ${{ env.ENV }} == 'prod' ]]; then
+          echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+        fi
+
+    # # Send notification when the job starts
+    # - name: Notify Microsoft Teams (started)
+    #   run: |
+    #     curl -H 'Content-Type: application/json' -d '{"text": "${{ env.ENV }} Build started for ${{ github.repository }} on branch ${{ github.ref }}."}' "${{ secrets.TEAMS_WEBHOOK_URL }}"
+
+    # Step 4: Set up AWS CLI
+    - name: Configure AWS CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3 python3-pip
+        pip3 install awscli jq
+
+    # Step 5: Assume Role for AWS
+    - name: Configure AWS Credentials using OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/Github_Action_Role
+        aws-region: us-east-1
+
+    # # Step 6: Download kubectl
+    # - name: Setup kubectl
+    #   run: |
+    #     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    #     chmod +x ./kubectl
+    #     sudo mv ./kubectl /usr/local/bin/kubectl
+
+    # # Step 7: Install AWS IAM Authenticator
+    # - name: Install AWS IAM Authenticator
+    #   run: |
+    #     curl -Lo aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.5.9/aws-iam-authenticator_0.5.9_linux_amd64
+    #     chmod +x ./aws-iam-authenticator
+    #     sudo mv aws-iam-authenticator /usr/local/bin/
+
+    # # Step 8: Set up environment variables file
+    # - name: Set up environment file
+    #   run: |
+    #     if [[ ${{ env.ENV }} == 'dev' ]]; then
+    #       cp .dev.env .env
+    #     elif [[ ${{ env.ENV }} == 'prod' ]]; then
+    #       cp .prod.env .env
+    #     fi
+
+    # # Step 9: Retrieve DB credentials and other secrets
+    # - name: Retrieve secrets from AWS SSM Parameter Store and Secret Manager
+    #   run: |
+    #     secret=$(aws secretsmanager get-secret-value --secret-id "${{ env.ENV }}-ue1-backend-api-keys" --query "SecretString" --output text)
+    #     db_url=$(echo $secret | jq -r '.db_url')
+    #     db_username=$(echo $secret | jq -r '.db_username')
+    #     db_pass=$(echo $secret | jq -r '.db_password')
+    #     access_key=$(echo $secret | jq -r '.access_key')
+    #     secret_key=$(echo $secret | jq -r '.secret_key')
+    #     sed -i "s#localhost#${db_url}#g" .env
+    #     sed -i "s#root#${db_username}#g" .env
+    #     sed -i "s#password#${db_pass}#g" .env
+    #     sed -i "s#local#${{ env.ENV }}#g" .env
+    #     sed -i "s#access_key#${access_key}#g" .env
+    #     sed -i "s#secret_key#${secret_key}#g" .env
+    #     sed -i "s#account_id#${{ env.AWS_ACCOUNT_ID }}#g" .env
+
+    # # Step 10: Log in to Amazon ECR
+    # - name: Log in to Amazon ECR
+    #   run: |
+    #     aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+    # # Step 11: Build and push Docker image to ECR
+    # - name: Build, tag, and push Docker image
+    #   run: |
+    #     docker build -t ${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:latest .
+    #     docker tag ${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:latest
+    #     docker tag ${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:${{ env.ENV }}-${{ github.run_number }}
+    #     docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:latest
+    #     docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/${{ secrets.PICKWINNERS_NOTIFICATION_ECR }}:${{ env.ENV }}-${{ github.run_number }}
+
+    # # Step 12: Update Kubernetes manifests with the new image tag
+    # - name: Set image in Kubernetes deployment
+    #   run: |
+    #     sed -i 's|aws_account_id|${{ env.AWS_ACCOUNT_ID }}|g' k8s/deployment.yml
+    #     sed -i 's|latest|${{ env.ENV }}-${{ github.run_number }}|g' k8s/deployment.yml
+
+    # # Step 13: Configure kubectl to connect to EKS cluster
+    # - name: Configure kubectl to connect to EKS cluster
+    #   run: |
+    #     if [[ ${{ env.ENV }} == 'dev' ]]; then
+    #       aws eks update-kubeconfig --region us-east-1 --name ${{ secrets.DEV_EKS_CLUSTER_NAME }}
+    #     elif [[ ${{ env.ENV }} == 'prod' ]]; then
+    #       aws eks update-kubeconfig --region us-east-1 --name ${{ secrets.PROD_EKS_CLUSTER_NAME }}
+    #     fi
+
+    # # Step 14: Apply Kubernetes manifests
+    # - name: Apply Kubernetes manifests
+    #   run: |
+    #     kubectl apply -f k8s/deployment.yml --validate=false
+
+    # # Send notification for build success
+    # - name: Notify Microsoft Teams (success)
+    #   if: success()
+    #   run: |
+    #     curl -H 'Content-Type: application/json' -d '{"text": "${{ env.ENV }} Build succeeded for ${{ github.repository }} on branch ${{ github.ref }}."}' "${{ secrets.TEAMS_WEBHOOK_URL }}"
+
+    # # Send notification for build failure
+    # - name: Notify Microsoft Teams (failure)
+    #   if: failure()
+    #   run: |
+    #     curl -H 'Content-Type: application/json' -d '{"text": "${{ env.ENV }} Build failed for ${{ github.repository }} on branch ${{ github.ref }}."}' "${{ secrets.TEAMS_WEBHOOK_URL }}"
