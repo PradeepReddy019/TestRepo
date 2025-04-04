@@ -1,12 +1,9 @@
 name: Deploy to AWS Environment
-
 on:
   workflow_dispatch:
-
 permissions:
   id-token: write
   contents: read
-
 jobs:
   set-environment:
     runs-on: ubuntu-latest
@@ -36,41 +33,80 @@ jobs:
             echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
           fi
+          
+          # Debug the environment variable
+          echo "Environment set to: ${{ env.ENV }}"
       
       # Step 3: Set AWS account ID based on environment
       - name: Set AWS account ID based on environment
         id: set_aws
         run: |
-          if [[ ${{ env.ENV }} == 'dev' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.DEV_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
-            echo "aws_account_id=${{ secrets.DEV_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ ${{ env.ENV }} == 'qa' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
-            echo "aws_account_id=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ ${{ env.ENV }} == 'prod' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
-            echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          # Store the values in local variables first
+          if [[ "${{ env.ENV }}" == "dev" ]]; then
+            ACCOUNT_ID="${{ secrets.DEV_AWS_ACCOUNT_ID }}"
+          elif [[ "${{ env.ENV }}" == "qa" ]]; then
+            ACCOUNT_ID="${{ secrets.QA_AWS_ACCOUNT_ID }}"
+          elif [[ "${{ env.ENV }}" == "prod" ]]; then
+            ACCOUNT_ID="${{ secrets.PROD_AWS_ACCOUNT_ID }}"
+          else
+            ACCOUNT_ID="${{ secrets.DEV_AWS_ACCOUNT_ID }}"  # Default
           fi
-
+          
+          # Set both the environment variable and the output
+          echo "AWS_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
+          echo "aws_account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+          
+          # Verify the account ID is set (will be masked in logs)
+          if [[ -n "${ACCOUNT_ID}" ]]; then
+            echo "✓ AWS Account ID has been set successfully"
+          else
+            echo "✗ ERROR: AWS Account ID is empty!"
+          fi
+          
+      # Debug outputs before job completion
+      - name: Verify outputs
+        run: |
+          echo "Environment: ${{ env.ENV }}"
+          echo "env_name output: ${{ steps.set_env.outputs.env_name }}"
+          echo "AWS account ID output is set: ${{ steps.set_aws.outputs.aws_account_id != '' }}"
+          
   build:
     needs: set-environment
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      
+      - name: Debug received values
+        run: |
+          echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
+          if [[ -n "${{ needs.set-environment.outputs.aws_account_id }}" ]]; then
+            echo "✓ AWS Account ID is properly received"
+          else
+            echo "✗ ERROR: AWS Account ID is empty or not received!"
+          fi
       
       - name: Build with environment variables
         run: |
           echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
-          echo "Using AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
-          # Add your build steps here
+          # Don't echo the actual account ID, just confirm it exists
+          echo "AWS Account ID is defined: ${{ needs.set-environment.outputs.aws_account_id != '' }}"
   
   deploy:
     needs: [set-environment, build]
     runs-on: ubuntu-latest
     
     steps:
+      - name: Debug values before AWS configuration
+        run: |
+          echo "Deploying to environment: ${{ needs.set-environment.outputs.env_name }}"
+          if [[ -n "${{ needs.set-environment.outputs.aws_account_id }}" ]]; then
+            echo "✓ AWS Account ID is available for AWS configuration"
+          else
+            echo "✗ ERROR: AWS Account ID is missing before AWS configuration!"
+          fi
+      
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -80,5 +116,6 @@ jobs:
       - name: Deploy to AWS
         run: |
           echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
-          echo "In AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # This will be masked in logs if the account ID contains only numbers
+          echo "Account ID is present: ${{ needs.set-environment.outputs.aws_account_id != '' }}"
           # Add your deployment commands here
