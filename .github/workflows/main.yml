@@ -1,0 +1,84 @@
+name: Deploy to AWS Environment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  set-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.set_env.outputs.env_name }}
+      aws_account_id: ${{ steps.set_aws.outputs.aws_account_id }}
+    
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      # Step 2: Set environment based on branch
+      - name: Set environment variable
+        id: set_env
+        run: |
+          if [[ $GITHUB_REF_NAME == 'develop' ]]; then
+            echo "ENV=dev" >> "$GITHUB_ENV"
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+          elif [[ $GITHUB_REF_NAME == 'release' ]]; then
+            echo "ENV=qa" >> "$GITHUB_ENV"
+            echo "env_name=qa" >> "$GITHUB_OUTPUT"
+          elif [[ $GITHUB_REF_NAME == 'main' ]]; then
+            echo "ENV=prod" >> "$GITHUB_ENV"
+            echo "env_name=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+          fi
+      
+      # Step 3: Set AWS account ID based on environment
+      - name: Set AWS account ID based on environment
+        id: set_aws
+        run: |
+          if [[ ${{ env.ENV }} == 'dev' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          elif [[ ${{ env.ENV }} == 'qa' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          elif [[ ${{ env.ENV }} == 'prod' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: set-environment
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Build with environment variables
+        run: |
+          echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
+          echo "Using AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # Add your build steps here
+  
+  deploy:
+    needs: [set-environment, build]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.DEV_AWS_ACCOUNT_ID }}:role/Github_Action_Role
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Deploy to AWS
+        run: |
+          echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
+          echo "In AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # Add your deployment commands here
