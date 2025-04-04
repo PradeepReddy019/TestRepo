@@ -17,73 +17,66 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
-      - name: Set environment variable
+
+      - name: Set environment name (output)
         id: set_env
         run: |
-          if [[ $GITHUB_REF_NAME == 'develop' ]]; then
-            echo "ENV=dev" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF_NAME" == "develop" ]]; then
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
-          elif [[ $GITHUB_REF_NAME == 'release' ]]; then
-            echo "ENV=qa" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF_NAME" == "release" ]]; then
             echo "env_name=qa" >> "$GITHUB_OUTPUT"
-          elif [[ $GITHUB_REF_NAME == 'main' ]]; then
-            echo "ENV=prod" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF_NAME" == "main" ]]; then
             echo "env_name=prod" >> "$GITHUB_OUTPUT"
           else
-            echo "ENV=dev" >> "$GITHUB_ENV"
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
           fi
-          
-      - name: Set AWS account ID based on environment
+          echo "ENV=$(echo "${{ steps.set_env.outputs.env_name }}")" >> "$GITHUB_ENV"
+
+      - name: Set AWS account ID (output)
         id: set_aws
         run: |
-          if [[ $ENV == 'dev' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+          if [[ "${{ env.ENV }}" == "dev" ]]; then
             echo "aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ $ENV == 'qa' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+          elif [[ "${{ env.ENV }}" == "qa" ]]; then
             echo "aws_account_id=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ $ENV == 'prod' ]]; then
-            echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+          elif [[ "${{ env.ENV }}" == "prod" ]]; then
             echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Debug environment variables
+      - name: Validate outputs
         run: |
-          echo "Environment Name: ${{ steps.set_env.outputs.env_name }}"
+          echo "Environment: ${{ steps.set_env.outputs.env_name }}"
           echo "AWS Account ID: ${{ steps.set_aws.outputs.aws_account_id }}"
 
   build:
     needs: set-environment
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Build with environment variables
+        uses: actions/checkout@v4
+
+      - name: Build confirmation
         run: |
-          echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
-          echo "Using AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
+          echo "Successfully built for ${{ needs.set-environment.outputs.env_name }}"
+          echo "Target AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
 
   deploy:
     needs: [set-environment, build]
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Debug role ARN
+      - name: Show role ARN
         run: |
-          echo "Role ARN: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role"
+          echo "Using Role ARN: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role"
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role
           aws-region: ${{ secrets.AWS_REGION }}
-          audience: sts.amazonaws.com
-      
-      - name: Deploy to AWS
+          role-session-name: GitHubAction-${{ github.run_id }}
+
+      - name: Execute deployment
         run: |
           echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
-          echo "In AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
+          echo "AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # Add your actual deployment commands here
