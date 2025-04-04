@@ -52,6 +52,12 @@ jobs:
             echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # Debug step to check account ID and environment
+      - name: Debug environment variables
+        run: |
+          echo "Environment Name: ${{ steps.set_env.outputs.env_name }}"
+          echo "AWS Account ID: ${{ steps.set_aws.outputs.aws_account_id }}"
+
   build:
     needs: set-environment
     runs-on: ubuntu-latest
@@ -71,11 +77,16 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Debug role ARN
+        run: |
+          echo "Role ARN: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role"
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role
           aws-region: ${{ secrets.AWS_REGION }}
+          audience: sts.amazonaws.com
       
       - name: Deploy to AWS
         run: |
