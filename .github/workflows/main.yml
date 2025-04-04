@@ -1,19 +1,25 @@
 name: Deploy to AWS Environment
+
 on:
   workflow_dispatch:
+
 permissions:
   id-token: write
   contents: read
+
 jobs:
   set-environment:
     runs-on: ubuntu-latest
     outputs:
       env_name: ${{ steps.set_env.outputs.env_name }}
+      aws_account_id: ${{ steps.set_aws.outputs.aws_account_id }}
     
     steps:
+      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         
+      # Step 2: Set environment based on branch
       - name: Set environment variable
         id: set_env
         run: |
@@ -27,82 +33,52 @@ jobs:
             echo "ENV=prod" >> "$GITHUB_ENV"
             echo "env_name=prod" >> "$GITHUB_OUTPUT"
           else
-            echo "ENV=dev" >> "$GITHUB_ENV"
+            echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
           fi
-      
-      # Write AWS account ID to a file
-      - name: Write AWS account ID to file
-        run: |
-          mkdir -p ./config
-          if [[ "${{ env.ENV }}" == "dev" ]]; then
-            echo "${{ secrets.DEV_AWS_ACCOUNT_ID }}" > ./config/aws_account_id.txt
-          elif [[ "${{ env.ENV }}" == "qa" ]]; then
-            echo "${{ secrets.QA_AWS_ACCOUNT_ID }}" > ./config/aws_account_id.txt
-          elif [[ "${{ env.ENV }}" == "prod" ]]; then
-            echo "${{ secrets.PROD_AWS_ACCOUNT_ID }}" > ./config/aws_account_id.txt
-          else
-            echo "${{ secrets.DEV_AWS_ACCOUNT_ID }}" > ./config/aws_account_id.txt
-          fi
           
-          # Verify file was created (don't show content)
-          if [[ -s ./config/aws_account_id.txt ]]; then
-            echo "✓ AWS Account ID file created successfully"
-          else
-            echo "✗ ERROR: AWS Account ID file is empty!"
+      # Step 3: Set AWS account ID based on environment
+      - name: Set AWS account ID based on environment
+        id: set_aws
+        run: |
+          if [[ ${{ env.ENV }} == 'dev' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          elif [[ ${{ env.ENV }} == 'qa' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
+          elif [[ ${{ env.ENV }} == 'prod' ]]; then
+            echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
+            echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
           fi
-      
-      # Upload the file as an artifact
-      - name: Upload AWS account ID
-        uses: actions/upload-artifact@v4
-        with:
-          name: aws-config
-          path: ./config/aws_account_id.txt
-          retention-days: 1
-  
+
   build:
     needs: set-environment
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-      
-      # Download the artifact
-      - name: Download AWS account ID
-        uses: actions/download-artifact@v4
-        with:
-          name: aws-config
-          path: ./config
-      
+        uses: actions/checkout@v3
+        
       - name: Build with environment variables
         run: |
           echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
-          if [[ -s ./config/aws_account_id.txt ]]; then
-            echo "✓ AWS Account ID file exists and is not empty"
-          else
-            echo "✗ ERROR: AWS Account ID file is missing or empty!"
-          fi
-  
+          echo "Using AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # Add your build steps here
+
   deploy:
     needs: [set-environment, build]
     runs-on: ubuntu-latest
     
     steps:
-      # Download the artifact
-      - name: Download AWS account ID
-        uses: actions/download-artifact@v4
-        with:
-          name: aws-config
-          path: ./config
-      
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::$(cat ./config/aws_account_id.txt):role/Github_Action_Role
+          role-to-assume: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role
           aws-region: ${{ secrets.AWS_REGION }}
       
       - name: Deploy to AWS
         run: |
           echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
-          echo "AWS Account ID file exists: $(test -f ./config/aws_account_id.txt && echo 'Yes' || echo 'No')"
+          echo "In AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
+          # Add your deployment commands here
