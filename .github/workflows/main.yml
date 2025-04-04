@@ -15,11 +15,9 @@ jobs:
       aws_account_id: ${{ steps.set_aws.outputs.aws_account_id }}
     
     steps:
-      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      # Step 2: Set environment based on branch
       - name: Set environment variable
         id: set_env
         run: |
@@ -33,26 +31,24 @@ jobs:
             echo "ENV=prod" >> "$GITHUB_ENV"
             echo "env_name=prod" >> "$GITHUB_OUTPUT"
           else
-            echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
+            echo "ENV=dev" >> "$GITHUB_ENV"
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
           fi
           
-      # Step 3: Set AWS account ID based on environment
       - name: Set AWS account ID based on environment
         id: set_aws
         run: |
-          if [[ ${{ env.ENV }} == 'dev' ]]; then
+          if [[ $ENV == 'dev' ]]; then
             echo "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
             echo "aws_account_id=${{ secrets.AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ ${{ env.ENV }} == 'qa' ]]; then
+          elif [[ $ENV == 'qa' ]]; then
             echo "AWS_ACCOUNT_ID=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
             echo "aws_account_id=${{ secrets.QA_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
-          elif [[ ${{ env.ENV }} == 'prod' ]]; then
+          elif [[ $ENV == 'prod' ]]; then
             echo "AWS_ACCOUNT_ID=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_ENV"
             echo "aws_account_id=${{ secrets.PROD_AWS_ACCOUNT_ID }}" >> "$GITHUB_OUTPUT"
           fi
 
-      # Debug step to check account ID and environment
       - name: Debug environment variables
         run: |
           echo "Environment Name: ${{ steps.set_env.outputs.env_name }}"
@@ -70,7 +66,6 @@ jobs:
         run: |
           echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
           echo "Using AWS Account ID: ${{ needs.set-environment.outputs.aws_account_id }}"
-          # Add your build steps here
 
   deploy:
     needs: [set-environment, build]
@@ -92,4 +87,3 @@ jobs:
         run: |
           echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
           echo "In AWS Account: ${{ needs.set-environment.outputs.aws_account_id }}"
-          # Add your deployment commands here
