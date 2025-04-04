@@ -9,14 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       env_name: ${{ steps.set_env.outputs.env_name }}
-      aws_account_id: ${{ steps.set_aws.outputs.aws_account_id }}
+      aws_account_id: ${{ steps.export_account.outputs.account_id }}
     
     steps:
-      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      # Step 2: Set environment based on branch
       - name: Set environment variable
         id: set_env
         run: |
@@ -30,49 +28,40 @@ jobs:
             echo "ENV=prod" >> "$GITHUB_ENV"
             echo "env_name=prod" >> "$GITHUB_OUTPUT"
           else
-            echo "ENV=dev" >> "$GITHUB_ENV"  # Default to dev environment
+            echo "ENV=dev" >> "$GITHUB_ENV"
             echo "env_name=dev" >> "$GITHUB_OUTPUT"
           fi
           
-          # Debug the environment variable
-          echo "Environment set to: ${{ env.ENV }}"
-      
-      # Step 3: Set AWS account ID based on environment
-      - name: Set AWS account ID based on environment
-        id: set_aws
+      # Using a separate step with explicit output
+      - name: Export AWS account ID
+        id: export_account
+        shell: bash
+        env:
+          DEV_ACCOUNT: ${{ secrets.DEV_AWS_ACCOUNT_ID }}
+          QA_ACCOUNT: ${{ secrets.QA_AWS_ACCOUNT_ID }}
+          PROD_ACCOUNT: ${{ secrets.PROD_AWS_ACCOUNT_ID }}
         run: |
-          # Store the values in local variables first
+          # Determine which account to use
           if [[ "${{ env.ENV }}" == "dev" ]]; then
-            ACCOUNT_ID="${{ secrets.DEV_AWS_ACCOUNT_ID }}"
+            echo "account_id=$DEV_ACCOUNT" >> $GITHUB_OUTPUT
           elif [[ "${{ env.ENV }}" == "qa" ]]; then
-            ACCOUNT_ID="${{ secrets.QA_AWS_ACCOUNT_ID }}"
+            echo "account_id=$QA_ACCOUNT" >> $GITHUB_OUTPUT
           elif [[ "${{ env.ENV }}" == "prod" ]]; then
-            ACCOUNT_ID="${{ secrets.PROD_AWS_ACCOUNT_ID }}"
+            echo "account_id=$PROD_ACCOUNT" >> $GITHUB_OUTPUT
           else
-            ACCOUNT_ID="${{ secrets.DEV_AWS_ACCOUNT_ID }}"  # Default
+            echo "account_id=$DEV_ACCOUNT" >> $GITHUB_OUTPUT
           fi
           
-          # Set both the environment variable and the output
-          echo "AWS_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
-          echo "aws_account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
-          
-          # Verify the account ID is set (will be masked in logs)
-          if [[ -n "${ACCOUNT_ID}" ]]; then
-            echo "✓ AWS Account ID has been set successfully"
-          else
-            echo "✗ ERROR: AWS Account ID is empty!"
-          fi
-          
-      # Debug outputs before job completion
-      - name: Verify outputs
-        run: |
-          echo "Environment: ${{ env.ENV }}"
-          echo "env_name output: ${{ steps.set_env.outputs.env_name }}"
-          echo "AWS account ID output is set: ${{ steps.set_aws.outputs.aws_account_id != '' }}"
+          # Verify output variable exists but don't print the actual value
+          echo "AWS Account ID has been set to output"
           
   build:
     needs: set-environment
     runs-on: ubuntu-latest
+    env:
+      # Explicitly set environment variables from previous job
+      ENV_NAME: ${{ needs.set-environment.outputs.env_name }}
+      AWS_ACCOUNT: ${{ needs.set-environment.outputs.aws_account_id }}
     
     steps:
       - name: Checkout code
@@ -80,42 +69,29 @@ jobs:
       
       - name: Debug received values
         run: |
-          echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
-          if [[ -n "${{ needs.set-environment.outputs.aws_account_id }}" ]]; then
+          echo "Building for environment: $ENV_NAME"
+          if [[ -n "$AWS_ACCOUNT" ]]; then
             echo "✓ AWS Account ID is properly received"
           else
             echo "✗ ERROR: AWS Account ID is empty or not received!"
           fi
       
-      - name: Build with environment variables
-        run: |
-          echo "Building for environment: ${{ needs.set-environment.outputs.env_name }}"
-          # Don't echo the actual account ID, just confirm it exists
-          echo "AWS Account ID is defined: ${{ needs.set-environment.outputs.aws_account_id != '' }}"
-  
   deploy:
     needs: [set-environment, build]
     runs-on: ubuntu-latest
+    env:
+      # Set environment variables again in this job
+      ENV_NAME: ${{ needs.set-environment.outputs.env_name }}
+      AWS_ACCOUNT: ${{ needs.set-environment.outputs.aws_account_id }}
     
     steps:
-      - name: Debug values before AWS configuration
-        run: |
-          echo "Deploying to environment: ${{ needs.set-environment.outputs.env_name }}"
-          if [[ -n "${{ needs.set-environment.outputs.aws_account_id }}" ]]; then
-            echo "✓ AWS Account ID is available for AWS configuration"
-          else
-            echo "✗ ERROR: AWS Account ID is missing before AWS configuration!"
-          fi
-      
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ needs.set-environment.outputs.aws_account_id }}:role/Github_Action_Role
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/Github_Action_Role
           aws-region: ${{ secrets.AWS_REGION }}
       
       - name: Deploy to AWS
         run: |
-          echo "Deploying to ${{ needs.set-environment.outputs.env_name }} environment"
-          # This will be masked in logs if the account ID contains only numbers
-          echo "Account ID is present: ${{ needs.set-environment.outputs.aws_account_id != '' }}"
+          echo "Deploying to $ENV_NAME environment"
           # Add your deployment commands here
